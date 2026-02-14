@@ -180,8 +180,8 @@ done
 [[ -f "$PROMPT_FILE" ]] || { echo "❌ prompt file missing: $PROMPT_FILE"; exit 2; }
 mkdir -p "$(dirname "$LOG_FILE")"
 
-# Enforce subscription-only
-unset OPENAI_API_KEY OPENAI_KEY CODEX_API_KEY || true
+# Enforce subscription-only (unset ALL provider keys, not just OpenAI)
+unset OPENAI_API_KEY OPENAI_KEY CODEX_API_KEY ANTHROPIC_API_KEY ANTHROPIC_KEY || true
 
 PROMPT="$(cat "$PROMPT_FILE")"
 
@@ -251,8 +251,8 @@ done
 [[ -f "$PROMPT_FILE" ]] || { echo "❌ prompt file missing: $PROMPT_FILE"; exit 2; }
 mkdir -p "$(dirname "$LOG_FILE")"
 
-# Enforce subscription-only
-unset ANTHROPIC_API_KEY ANTHROPIC_KEY || true
+# Enforce subscription-only (unset ALL provider keys, not just Anthropic)
+unset ANTHROPIC_API_KEY ANTHROPIC_KEY OPENAI_API_KEY OPENAI_KEY CODEX_API_KEY || true
 
 PROMPT="$(cat "$PROMPT_FILE")"
 
@@ -514,6 +514,16 @@ RUN_DIR="$ROOT/runs/$RUN_ID"
 mkdir -p "$RUN_DIR"
 export SF_RUN_DIR="$RUN_DIR"
 export SF_ROOT="$ROOT"
+
+# Record run metadata with resolved git SHA (not literal "HEAD")
+GIT_SHA="$(git rev-parse HEAD)"
+cat > "$RUN_DIR/meta.env" <<METAEOF
+run_id=$RUN_ID
+root=$ROOT
+git_rev=$GIT_SHA
+base_branch=$BASE_BRANCH
+started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+METAEOF
 
 # Spark-first by default (your request)
 export CODEX_MODEL_PRIMARY="${CODEX_MODEL_PRIMARY:-gpt-5.3-codex-spark}"

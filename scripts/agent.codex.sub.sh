@@ -33,8 +33,8 @@ if [[ ! -f "$PROMPT_FILE" ]]; then
   exit 2
 fi
 
-# Enforce subscription-only
-unset OPENAI_API_KEY OPENAI_KEY CODEX_API_KEY || true
+# Enforce subscription-only (unset ALL provider keys, not just OpenAI)
+unset OPENAI_API_KEY OPENAI_KEY CODEX_API_KEY ANTHROPIC_API_KEY ANTHROPIC_KEY || true
 
 run_codex() {
   local m="$1"
