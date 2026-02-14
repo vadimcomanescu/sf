@@ -9,3 +9,4 @@ data/
 runs/
 .worktrees/
 *.log
+.pnpm-store/
