@@ -17,6 +17,16 @@ mkdir -p "$RUN_DIR"
 export SF_RUN_DIR="$RUN_DIR"
 export SF_ROOT="$ROOT"
 
+# Record run metadata with resolved git SHA (not literal "HEAD")
+GIT_SHA="$(git rev-parse HEAD)"
+cat > "$RUN_DIR/meta.env" <<EOF
+run_id=$RUN_ID
+root=$ROOT
+git_rev=$GIT_SHA
+base_branch=$BASE_BRANCH
+started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+EOF
+
 # Spark-first by default (your request)
 export CODEX_MODEL_PRIMARY="${CODEX_MODEL_PRIMARY:-gpt-5.3-codex-spark}"
 export CODEX_MODEL_FALLBACK="${CODEX_MODEL_FALLBACK:-gpt-5.3-codex}"

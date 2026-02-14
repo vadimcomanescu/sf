@@ -20,8 +20,8 @@ done
 [[ -f "$PROMPT_FILE" ]] || { echo "❌ prompt file missing: $PROMPT_FILE"; exit 2; }
 mkdir -p "$(dirname "$LOG_FILE")"
 
-# Enforce subscription-only
-unset ANTHROPIC_API_KEY ANTHROPIC_KEY || true
+# Enforce subscription-only (unset ALL provider keys, not just Anthropic)
+unset ANTHROPIC_API_KEY ANTHROPIC_KEY OPENAI_API_KEY OPENAI_KEY CODEX_API_KEY || true
 
 PROMPT="$(cat "$PROMPT_FILE")"
 

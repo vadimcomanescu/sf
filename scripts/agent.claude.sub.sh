@@ -31,8 +31,8 @@ if [[ ! -f "$PROMPT_FILE" ]]; then
   exit 2
 fi
 
-# Enforce subscription-only: Claude Code uses API keys if ANTHROPIC_API_KEY is set.
-unset ANTHROPIC_API_KEY ANTHROPIC_KEY || true
+# Enforce subscription-only (unset ALL provider keys, not just Anthropic)
+unset ANTHROPIC_API_KEY ANTHROPIC_KEY OPENAI_API_KEY OPENAI_KEY CODEX_API_KEY || true
 
 run_claude() {
   local m="$1"

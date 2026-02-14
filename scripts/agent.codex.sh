@@ -27,8 +27,8 @@ done
 [[ -f "$PROMPT_FILE" ]] || { echo "❌ prompt file missing: $PROMPT_FILE"; exit 2; }
 mkdir -p "$(dirname "$LOG_FILE")"
 
-# Enforce subscription-only
-unset OPENAI_API_KEY OPENAI_KEY CODEX_API_KEY || true
+# Enforce subscription-only (unset ALL provider keys, not just OpenAI)
+unset OPENAI_API_KEY OPENAI_KEY CODEX_API_KEY ANTHROPIC_API_KEY ANTHROPIC_KEY || true
 
 PROMPT="$(cat "$PROMPT_FILE")"
 
