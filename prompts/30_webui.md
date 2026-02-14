@@ -1,28 +1,29 @@
-# Lane 30 — Build the SF Web UI (Next.js realtime console)
+# LANE 30 — WEBUI (Codex Spark xhigh)
 
-You are Codex in worktree branch `lane/webui`. Follow SPEC.md + AGENTS.md.
+Scope: only edit `apps/web/**` and shared types if needed.
 
-## Scope boundary
-- Work only under `apps/web/**` (and minimal shared types under `packages/contracts/**` if needed).
-- Do NOT modify API code.
+Goal: Next.js WebUI that shows runs in real time.
 
-## Goal
-Create a Web UI that shows:
-- list of products
-- per product runs
-- real-time run status and logs/events via SSE
-- buttons to stop/resume runs
+Pages:
+- / (products list + create product)
+- /products/[id] (product detail + start run form)
+- /runs/[runId] (live run console)
 
-## UI requirements
-- Next.js App Router
-- Tailwind (preferred) with a clean minimal component set
-- Pages:
-  - `/` dashboard (products + recent runs)
-  - `/products/[id]` product detail (runs list + start run form)
-  - `/runs/[id]` run detail (SSE stream, stage/status timeline, stop/resume buttons)
-- Use `EventSource` for `/api/runs/:runId/events`.
+Live run console must show:
+- status badge (running/stopped/succeeded/failed)
+- timeline view of stages (can be stubbed from events)
+- log stream (SSE)
+- stop/resume buttons
+- links to run artifacts folder path (runs/<runId>/...)
 
-## Definition of Done
-- `pnpm -C apps/web dev` runs and loads pages.
-- Add at least 1 Playwright E2E smoke test (can be simple).
-- Commit with message: `lane: web ui console`
+Constraints:
+- Use EventSource SSE from API.
+- Keep UI minimal but functional.
+
+Tests:
+- One Playwright smoke test: UI loads / and lists products (mock if needed)
+
+Definition of done:
+- `pnpm -C apps/web build` passes
+- `pnpm -C apps/web test` passes (unit + e2e if configured)
+- Commit: "lane: webui"

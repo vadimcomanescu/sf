@@ -1,50 +1,44 @@
-# Lane 20 — Build the SF Control Plane API (Fastify + DDD)
+# LANE 20 — API CONTROL PLANE (Codex Spark xhigh)
 
-You are Codex in worktree branch `lane/api`. Follow SPEC.md + AGENTS.md.
+Scope: only edit `apps/api/**` and (if required) `packages/contracts/**`.
 
-## Scope boundary
-- Work only under `apps/api/**` (and add minimal shared types under `packages/contracts/**` if needed).
-- Do NOT modify UI code.
+Goal: Implement the Factory control plane API in **Fastify + TypeScript** with DDD layout.
 
-## Goal
-Implement a local-first Control Plane API that can:
-- manage Products and Runs
-- start/stop/resume orchestrated pipelines via Kilroy CLI
-- stream run status/events to clients (SSE)
+Required DDD layout:
+apps/api/src/
+  domain/
+  application/
+  infrastructure/
+  interfaces/http/
+  tests/
 
-## Required endpoints (v1)
-- `GET /health`
-- `GET /api/products`
-- `POST /api/products`  (name, path, stackId)
-- `GET /api/products/:productId`
-- `POST /api/products/:productId/runs` (pipelineId, specText)
-- `GET /api/runs/:runId`
-- `POST /api/runs/:runId/stop`
-- `POST /api/runs/:runId/resume`
-- `GET /api/runs/:runId/events`  (Server-Sent Events; status snapshots at least every 1s)
+Features:
+1) Products registry (local-first):
+   - store in SQLite at `data/factory.db`
+   - endpoints:
+     - GET /api/products
+     - POST /api/products  {name, repoPath, stackId}
+2) Runs:
+   - POST /api/products/:id/runs  {pipelineId, specText}
+   - GET  /api/runs/:runId
+   - POST /api/runs/:runId/stop
+   - POST /api/runs/:runId/resume
+3) SSE live events:
+   - GET /api/runs/:runId/events  (SSE)
+   - Emit structured events at least once/sec:
+     - runStatus snapshot
+     - new log lines from run directory (tail)
+4) Process orchestration (v1):
+   - For now, run pipelines by spawning a local CLI command that writes into runs/<runId>/...
+   - Provide an abstraction in infrastructure: `RunExecutor`.
+   - Must support stop/resume via PID tracking and signals.
 
-## Implementation details
-- Use Fastify + TypeScript.
-- Persist indexing state in SQLite: `data/factory.db`.
-- Use DDD folder layout:
-  - `domain/` entities + value objects
-  - `application/` services/use-cases
-  - `infrastructure/` SQLite repo + Kilroy process adapter
-  - `interfaces/http/` routes/controllers
-  - `tests/` unit/integration tests
-- Orchestration:
-  - Start run by spawning `tools/kilroy/kilroy attractor run ...`
-  - Store `runId`, `productId`, `logsRoot`, `status`, timestamps
-  - Implement stop/resume by calling `tools/kilroy/kilroy attractor stop|resume --logs-root <logsRoot>`
-  - For SSE, poll `tools/kilroy/kilroy attractor status --logs-root <logsRoot> --json` and emit updates.
-- Must support multiple concurrent runs.
+Tests:
+- At least unit tests for:
+  - Run state transitions
+  - SSE framing (basic)
 
-## Tests
-- Add Vitest tests for:
-  - product creation
-  - run lifecycle stubs (mock the Kilroy adapter)
-
-## Definition of Done
-- `pnpm -C apps/api test` passes.
-- `pnpm -C apps/api typecheck` passes.
-- Commit with message: `lane: api control plane`
+Definition of done:
+- `pnpm -C apps/api test` passes
+- `pnpm -C apps/api typecheck` passes
+- Commit: "lane: api"

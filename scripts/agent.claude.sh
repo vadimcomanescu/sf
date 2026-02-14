@@ -1,17 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODEL="${1:?model required}"        # opus | sonnet | opusplan | full model name
-PROMPT_FILE="${2:?prompt_file required}"
-LOGFILE="${3:?logfile required}"
+PROMPT_FILE=""
+LOG_FILE=""
+MODEL="${CLAUDE_MODEL:-opusplan}"
+FALLBACK="${CLAUDE_FALLBACK:-sonnet}"
 
-# Effort levels for Opus 4.6 inside Claude Code: low|medium|high (default).
-# (Claude Code does not expose "max" effort via env var as of Feb 2026.)
-export CLAUDE_CODE_EFFORT_LEVEL="${CLAUDE_CODE_EFFORT_LEVEL:-high}"
+usage(){ echo "Usage: $0 --prompt <file> --log <file> [--model <model>]"; }
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --prompt) PROMPT_FILE="$2"; shift 2 ;;
+    --log) LOG_FILE="$2"; shift 2 ;;
+    --model) MODEL="$2"; shift 2 ;;
+    *) usage; exit 2 ;;
+  esac
+done
+
+[[ -f "$PROMPT_FILE" ]] || { echo "❌ prompt file missing: $PROMPT_FILE"; exit 2; }
+mkdir -p "$(dirname "$LOG_FILE")"
+
+# Enforce subscription-only
+unset ANTHROPIC_API_KEY ANTHROPIC_KEY || true
 
 PROMPT="$(cat "$PROMPT_FILE")"
 
-echo ">>> claude --model $MODEL -p --dangerously-skip-permissions (prompt: $PROMPT_FILE)" | tee "$LOGFILE"
-claude --model "$MODEL" -p --dangerously-skip-permissions \
+echo "=== Claude model=$MODEL (fallback=$FALLBACK) ===" | tee -a "$LOG_FILE"
+claude --model "$MODEL" --fallback-model "$FALLBACK" -p --dangerously-skip-permissions \
   --output-format text \
-  "$PROMPT" 2>&1 | tee -a "$LOGFILE"
+  "$PROMPT" 2>&1 | tee -a "$LOG_FILE"
