@@ -1,0 +1,333 @@
+digraph fix_bug {
+    graph [
+        goal="Fix a bug in an existing product",
+        rankdir=LR,
+        default_max_retry=2,
+        max_restarts=30,
+        retry_target="diagnose",
+        model_stylesheet="
+            .plan { llm_model: opusplan; llm_provider: anthropic; }
+            .implement_fast { llm_model: gpt-5.3-codex-spark; llm_provider: openai; reasoning_effort: xhigh; }
+            .implement_deep { llm_model: gpt-5.3-codex; llm_provider: openai; reasoning_effort: xhigh; }
+            .review { llm_model: opus; llm_provider: anthropic; }
+            .debug { llm_model: gpt-5.3-codex; llm_provider: openai; }
+        "
+    ]
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    // =========================================================================
+    // Stage 1: Bug Diagnosis
+    // =========================================================================
+    diagnose [
+        shape=box,
+        class="debug",
+        timeout="1200s",
+        prompt="Goal: $goal
+
+Diagnose the bug to understand root cause.
+
+Read:
+- Bug report from run context
+- Existing codebase
+- Related test files
+- Recent git history (if regression)
+
+Investigate:
+- Reproduce the bug (if reproducible)
+- Read error logs and stack traces
+- Identify affected code paths
+- Check test coverage for affected areas
+- Review recent changes if regression
+
+Write diagnosis to .ai/bug_diagnosis.md with:
+- Bug description and reproduction steps
+- Root cause analysis
+- Affected code locations
+- Impact assessment (severity, scope)
+- Proposed fix approach
+
+Write status.json: outcome=success."
+    ]
+
+    verify_diagnosis [
+        shape=box,
+        timeout="300s",
+        prompt="Verify bug diagnosis completeness.
+
+Check:
+1. Root cause clearly identified
+2. Reproduction steps documented
+3. Fix approach is sound
+4. Impact assessed correctly
+
+Write status.json: outcome=success if complete, outcome=fail otherwise."
+    ]
+
+    check_diagnosis [shape=diamond, label="Diagnosis OK?"]
+
+    // =========================================================================
+    // Stage 2: Write Regression Test
+    // =========================================================================
+    write_regression_test [
+        shape=box,
+        class="implement_deep",
+        timeout="900s",
+        prompt="Goal: $goal
+
+Write a failing test that reproduces the bug (TDD approach).
+
+Read:
+- .ai/bug_diagnosis.md
+- Existing test patterns
+- Test utilities
+
+Write:
+- Regression test that currently fails
+- Test should pass once bug is fixed
+- Use existing test framework (Vitest for TS, Pytest for Python)
+- Place test in appropriate test file
+
+Verify:
+- Test fails as expected (reproduces bug)
+- Test is deterministic
+- Test is clear and well-named (BDD-style)
+
+Write status.json: outcome=success if test written and fails, outcome=fail otherwise."
+    ]
+
+    check_regression_test [shape=diamond, label="Regression Test OK?"]
+
+    // =========================================================================
+    // Stage 3: Parallel Bug Fix (Tournament)
+    // =========================================================================
+    par_impl [shape=component]
+
+    impl_codex [
+        shape=box,
+        class="implement_deep",
+        max_retries=2,
+        prompt="Goal: $goal
+
+Fix the bug (Codex branch).
+
+Read:
+- .ai/bug_diagnosis.md
+- Regression test just written
+- Existing codebase
+
+Fix:
+- Implement minimal fix for root cause
+- Ensure regression test now passes
+- Run all existing tests (no regressions)
+- Add unit tests if coverage gaps found
+- Update comments/docs if needed
+
+Acceptance:
+- Regression test passes
+- All existing tests still pass
+- Build succeeds
+- No TypeScript errors (if TS project)
+
+Write status.json: outcome=success if all pass, outcome=fail with failure_reason otherwise."
+    ]
+
+    impl_claude [
+        shape=box,
+        class="implement_deep",
+        max_retries=2,
+        llm_model="opus",
+        llm_provider="anthropic",
+        prompt="Goal: $goal
+
+Fix the bug (Claude branch).
+
+Read:
+- .ai/bug_diagnosis.md
+- Regression test just written
+- Existing codebase
+
+Fix:
+- Implement minimal fix for root cause
+- Ensure regression test now passes
+- Run all existing tests (no regressions)
+- Add unit tests if coverage gaps found
+- Update comments/docs if needed
+
+Acceptance:
+- Regression test passes
+- All existing tests still pass
+- Build succeeds
+- No TypeScript errors (if TS project)
+
+Write status.json: outcome=success if all pass, outcome=fail with failure_reason otherwise."
+    ]
+
+    join_impl [shape=tripleoctagon]
+
+    // =========================================================================
+    // Stage 4: Adjudication & Selection
+    // =========================================================================
+    adjudicate [
+        shape=box,
+        class="review",
+        timeout="900s",
+        prompt="Goal: $goal
+
+Select the best bug fix from parallel branches.
+
+Read:
+- Both fix implementations
+- Test results from each branch
+- Code change diffs
+
+Evaluate:
+1. Minimality (smallest change that fixes root cause)
+2. No regressions in existing tests
+3. Code quality and maintainability
+4. Side effects or edge cases
+5. Performance impact (if relevant)
+
+Record evidence:
+- Regression test results per branch
+- Existing test results (no regressions)
+- Diff size and complexity
+- Qualitative assessment
+
+Write .ai/adjudication.md with detailed comparison.
+Write status.json: outcome=success, selected_branch=(codex|claude) with justification."
+    ]
+
+    check_adjudicate [shape=diamond, label="Selection OK?"]
+
+    // =========================================================================
+    // Stage 5: Full Test Suite
+    // =========================================================================
+    run_full_tests [
+        shape=box,
+        timeout="1800s",
+        prompt="Goal: $goal
+
+Run full test suite on selected fix.
+
+Read:
+- Selected implementation from adjudication
+
+Run:
+1. All unit tests
+2. All integration tests
+3. E2E tests
+4. Regression test (must pass)
+
+Write results to .ai/test_results.md with:
+- Test counts (total, passed, failed)
+- Regression test result (must be pass)
+- Any new failures
+- Test coverage for fixed code
+
+Write status.json: outcome=success if all pass, outcome=fail with failures."
+    ]
+
+    check_full_tests [shape=diamond, label="Full Tests OK?"]
+
+    // =========================================================================
+    // Stage 6: Bug Verification Scenarios
+    // =========================================================================
+    verify_fix [
+        shape=box,
+        timeout="900s",
+        prompt="Goal: $goal
+
+Verify the bug fix with scenarios.
+
+Read:
+- Bug report and reproduction steps
+- Selected implementation
+- .ai/bug_diagnosis.md
+
+Verify:
+1. Original bug is fixed (test reproduction steps)
+2. No side effects or new bugs introduced
+3. Edge cases handled correctly
+4. Fix works in expected environments
+
+Write results to .ai/bug_verification.json with:
+- Original bug status (fixed/not fixed)
+- Reproduction steps verification
+- Edge cases tested
+- Any concerns or follow-ups
+
+Write status.json: outcome=success if bug fixed, outcome=fail otherwise."
+    ]
+
+    check_verification [shape=diamond, label="Verification OK?"]
+
+    // =========================================================================
+    // Stage 7: Record Evidence
+    // =========================================================================
+    record_evidence [
+        shape=box,
+        timeout="600s",
+        goal_gate=true,
+        prompt="Goal: $goal
+
+Record immutable evidence ledger for this bug fix.
+
+Collect:
+- Bug diagnosis (.ai/bug_diagnosis.md)
+- Regression test code
+- Fix implementation diff
+- Adjudication report (.ai/adjudication.md)
+- Test results (.ai/test_results.md)
+- Bug verification (.ai/bug_verification.json)
+- Git commit hash
+
+Write to runs/<run-id>/evidence/:
+- manifest.json
+- bug_diagnosis.md
+- regression_test.patch
+- fix.patch
+- adjudication.md
+- test_results.md
+- bug_verification.json
+- git_commit.txt
+
+Write status.json: outcome=success."
+    ]
+
+    check_record [shape=diamond, label="Evidence OK?"]
+
+    // =========================================================================
+    // Flow
+    // =========================================================================
+    start -> diagnose
+    diagnose -> verify_diagnosis -> check_diagnosis
+    check_diagnosis -> write_regression_test    [condition="outcome=success"]
+    check_diagnosis -> diagnose                 [condition="outcome=fail", label="retry", loop_restart=true]
+
+    write_regression_test -> check_regression_test
+    check_regression_test -> par_impl           [condition="outcome=success"]
+    check_regression_test -> write_regression_test  [condition="outcome=fail", label="retry", loop_restart=true]
+
+    par_impl -> impl_codex
+    par_impl -> impl_claude
+    impl_codex -> join_impl
+    impl_claude -> join_impl
+    join_impl -> adjudicate -> check_adjudicate
+
+    check_adjudicate -> run_full_tests          [condition="outcome=success"]
+    check_adjudicate -> par_impl                [condition="outcome=fail", label="retry", loop_restart=true]
+
+    run_full_tests -> check_full_tests
+    check_full_tests -> verify_fix              [condition="outcome=success"]
+    check_full_tests -> run_full_tests          [condition="outcome=fail", label="retry", loop_restart=true]
+
+    verify_fix -> check_verification
+    check_verification -> record_evidence       [condition="outcome=success"]
+    check_verification -> verify_fix            [condition="outcome=fail", label="retry", loop_restart=true]
+
+    record_evidence -> check_record
+    check_record -> exit                        [condition="outcome=success"]
+    check_record -> record_evidence             [condition="outcome=fail", label="retry", loop_restart=true]
+}
