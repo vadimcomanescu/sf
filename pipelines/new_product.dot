@@ -1,0 +1,134 @@
+digraph new_product {
+    graph [
+        goal="Build a new product from template to deployed MVP",
+        rankdir=LR,
+        default_max_retry=2,
+        max_restarts=60,
+        retry_target="plan",
+        model_stylesheet="
+            .plan { llm_model: opusplan; llm_provider: anthropic; }
+            .implement_fast { llm_model: gpt-5.3-codex-spark; llm_provider: openai; reasoning_effort: xhigh; }
+            .implement_deep { llm_model: gpt-5.3-codex; llm_provider: openai; reasoning_effort: xhigh; }
+            .review { llm_model: opus; llm_provider: anthropic; }
+            .debug { llm_model: gpt-5.3-codex; llm_provider: openai; }
+        "
+    ]
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    // =========================================================================
+    // Stage 1: Planning
+    // =========================================================================
+    plan [
+        shape=box,
+        class="plan",
+        prompt="Goal: $goal\n\nCreate a detailed plan for the new product.\n\nRead:\n- Product brief from run context\n- Selected template structure\n- SPEC.md for tech stack constraints\n\nCreate:\n- Architecture design (DDD layout if backend)\n- Feature breakdown\n- Test strategy\n- Deployment plan\n\nWrite plan to .ai/plan.md.\nWrite status.json: outcome=success with plan_approved=true."
+    ]
+
+    verify_plan [
+        shape=box,
+        timeout="300s",
+        prompt="Verify plan completeness.\n\nCheck:\n1. Architecture aligns with SPEC.md stack choices\n2. DDD layout for API if applicable\n3. Test strategy includes both unit and E2E\n4. Deployment target specified\n\nWrite status.json: outcome=success if complete, outcome=fail otherwise."
+    ]
+
+    check_plan [shape=diamond, label="Plan OK?"]
+
+    // =========================================================================
+    // Stage 2: Parallel Implementation (Tournament)
+    // =========================================================================
+    par_impl [shape=component]
+
+    impl_codex_fast [
+        shape=box,
+        class="implement_fast",
+        max_retries=2,
+        prompt="Goal: $goal\n\nImplement the product following the approved plan (Codex fast branch).\n\nRead:\n- .ai/plan.md\n- Template structure from templates/\n- SPEC.md for tech constraints\n\nImplement:\n- Scaffold from template\n- Core features per plan\n- Unit tests (Vitest for TS, Pytest for Python)\n- OTel instrumentation stubs\n- DDD layout if backend\n\nAcceptance:\n- All tests pass\n- Build succeeds\n- No TypeScript errors (if TS project)\n\nWrite status.json: outcome=success if all pass, outcome=fail with failure_reason otherwise."
+    ]
+
+    impl_claude [
+        shape=box,
+        class="implement_deep",
+        max_retries=2,
+        llm_model="opus",
+        llm_provider="anthropic",
+        prompt="Goal: $goal\n\nImplement the product following the approved plan (Claude branch).\n\nRead:\n- .ai/plan.md\n- Template structure from templates/\n- SPEC.md for tech constraints\n\nImplement:\n- Scaffold from template\n- Core features per plan\n- Unit tests (Vitest for TS, Pytest for Python)\n- OTel instrumentation stubs\n- DDD layout if backend\n\nAcceptance:\n- All tests pass\n- Build succeeds\n- No TypeScript errors (if TS project)\n\nWrite status.json: outcome=success if all pass, outcome=fail with failure_reason otherwise."
+    ]
+
+    join_impl [shape=tripleoctagon]
+
+    // =========================================================================
+    // Stage 3: Adjudication & Selection
+    // =========================================================================
+    adjudicate [
+        shape=box,
+        class="review",
+        timeout="1200s",
+        prompt="Goal: $goal\n\nSelect the best implementation from parallel branches.\n\nRead:\n- Both implementation artifacts\n- Test results from each branch\n- Code quality metrics\n\nEvaluate:\n1. Test coverage and pass rate\n2. Code quality (TypeScript strict, linting)\n3. Adherence to SPEC.md constraints\n4. DDD structure quality (if applicable)\n5. Documentation completeness\n\nRecord evidence:\n- Test counts and results per branch\n- Build times\n- Lint/type check results\n- Qualitative assessment\n\nWrite .ai/adjudication.md with detailed comparison.\nWrite status.json: outcome=success, selected_branch=(codex_fast|claude) with justification."
+    ]
+
+    check_adjudicate [shape=diamond, label="Selection OK?"]
+
+    // =========================================================================
+    // Stage 4: Integration Tests
+    // =========================================================================
+    run_e2e [
+        shape=box,
+        timeout="1800s",
+        prompt="Goal: $goal\n\nRun end-to-end tests on selected implementation.\n\nRead:\n- Selected implementation from adjudication\n- Template E2E test suite\n\nRun:\n1. Playwright E2E tests (if web project)\n2. API integration tests (if backend)\n3. Full build pipeline\n\nWrite results to .ai/e2e_results.md.\nWrite status.json: outcome=success if all pass, outcome=fail with failures."
+    ]
+
+    check_e2e [shape=diamond, label="E2E OK?"]
+
+    // =========================================================================
+    // Stage 5: Evaluation Scenarios (Holdout)
+    // =========================================================================
+    run_evals [
+        shape=box,
+        timeout="1800s",
+        prompt="Goal: $goal\n\nRun holdout evaluation scenarios.\n\nRead:\n- Product brief for holdout scenarios\n- Selected implementation\n\nRun:\n- Execute holdout test suite (not visible to implementers)\n- Compute satisfaction metric (pass rate)\n- Clopper-Pearson lower bound at 95% confidence\n\nWrite results to .ai/eval_scenarios.json with:\n- Total scenarios\n- Passed scenarios\n- Failed scenarios with details\n- Satisfaction metric\n- Statistical confidence bound\n\nWrite status.json: outcome=success if satisfaction >= threshold, outcome=fail otherwise."
+    ]
+
+    check_evals [shape=diamond, label="Evals OK?"]
+
+    // =========================================================================
+    // Stage 6: Record Evidence
+    // =========================================================================
+    record_evidence [
+        shape=box,
+        timeout="600s",
+        goal_gate=true,
+        prompt="Goal: $goal\n\nRecord immutable evidence ledger for this run.\n\nCollect:\n- Plan (.ai/plan.md)\n- Implementation artifacts (code, tests)\n- Adjudication report (.ai/adjudication.md)\n- Test results (.ai/e2e_results.md)\n- Eval scenarios (.ai/eval_scenarios.json)\n- Build logs\n- OTel traces (if available)\n\nWrite to runs/<run-id>/evidence/:\n- manifest.json (inventory of all artifacts)\n- plan.md\n- adjudication.md\n- e2e_results.md\n- eval_scenarios.json\n- code_snapshot.tar.gz\n- build.log\n\nWrite status.json: outcome=success."
+    ]
+
+    check_record [shape=diamond, label="Evidence OK?"]
+
+    // =========================================================================
+    // Flow
+    // =========================================================================
+    start -> plan
+    plan -> verify_plan -> check_plan
+    check_plan -> par_impl           [condition="outcome=success"]
+    check_plan -> plan               [condition="outcome=fail", label="retry", loop_restart=true]
+
+    par_impl -> impl_codex_fast
+    par_impl -> impl_claude
+    impl_codex_fast -> join_impl
+    impl_claude -> join_impl
+    join_impl -> adjudicate -> check_adjudicate
+
+    check_adjudicate -> run_e2e      [condition="outcome=success"]
+    check_adjudicate -> par_impl     [condition="outcome=fail", label="retry", loop_restart=true]
+
+    run_e2e -> check_e2e
+    check_e2e -> run_evals           [condition="outcome=success"]
+    check_e2e -> run_e2e             [condition="outcome=fail", label="retry", loop_restart=true]
+
+    run_evals -> check_evals
+    check_evals -> record_evidence   [condition="outcome=success"]
+    check_evals -> run_evals         [condition="outcome=fail", label="retry", loop_restart=true]
+
+    record_evidence -> check_record
+    check_record -> exit             [condition="outcome=success"]
+    check_record -> record_evidence  [condition="outcome=fail", label="retry", loop_restart=true]
+}

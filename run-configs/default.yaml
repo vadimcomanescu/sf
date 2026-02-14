@@ -1,0 +1,97 @@
+# Default run configuration for SF factory
+# Uses CLI backends only (subscription-based, no API keys)
+
+name: default
+description: Default configuration using Codex CLI and Claude Code CLI
+
+# Model routing policy (matches model-matrix.json)
+models:
+  plan:
+    provider: anthropic
+    model: opusplan
+    backend: claude-code-cli
+
+  implement_ts_fast:
+    provider: openai
+    model: gpt-5.3-codex-spark
+    reasoning_effort: xhigh
+    backend: codex-cli
+
+  implement_ts_deep:
+    provider: openai
+    model: gpt-5.3-codex
+    reasoning_effort: xhigh
+    backend: codex-cli
+
+  review:
+    provider: anthropic
+    model: opus
+    backend: claude-code-cli
+
+  debug:
+    provider: openai
+    model: gpt-5.3-codex
+    backend: codex-cli
+
+  fallback:
+    openai:
+      model: gpt-5.2-codex
+      backend: codex-cli
+    anthropic:
+      model: sonnet
+      backend: claude-code-cli
+
+# Backend configuration
+backends:
+  codex-cli:
+    type: cli
+    command: codex
+    auth_method: chatgpt_oauth
+    # No API keys required - uses ChatGPT subscription
+
+  claude-code-cli:
+    type: cli
+    command: claude
+    auth_method: claude_ai_subscription
+    # No API keys required - uses claude.ai subscription
+
+# Pipeline defaults
+pipeline:
+  default_timeout: 1200  # 20 minutes per stage
+  max_retries: 2
+  max_restarts: 60
+  parallel_branches: 2  # For tournament stages
+
+# Evidence collection
+evidence:
+  enabled: true
+  base_path: runs/
+  collect_logs: true
+  collect_artifacts: true
+  collect_traces: true  # OTel traces if available
+
+# Validation gates
+validation:
+  test_pass_threshold: 0.95  # 95% test pass rate
+  satisfaction_threshold: 0.90  # 90% scenario satisfaction
+  confidence_level: 0.95  # 95% confidence for statistical bounds
+
+# Templates
+templates:
+  default: ts-next-convex-vercel
+  available:
+    - ts-next-convex-vercel
+    - ts-next-supabase-vercel
+    - ts-next-fastapi-fly
+
+# Observability
+observability:
+  otel_enabled: true
+  otel_endpoint: http://localhost:4317
+  grafana_enabled: false  # Enable if docker-compose stack is running
+
+# Safety checks
+safety:
+  fail_if_api_key_set: true  # Fail fast if OPENAI_API_KEY or ANTHROPIC_API_KEY is set
+  require_subscription_auth: true
+  sandbox_mode: true  # Run in isolated environment

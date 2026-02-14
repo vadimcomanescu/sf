@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MODEL="${1:?model required}"        # opus | sonnet | opusplan | claude-opus-4-6 etc.
+PROMPT_FILE="${2:?prompt_file required}"
+LOGFILE="${3:?logfile required}"
+
+mkdir -p "$(dirname "$LOGFILE")"
+
+# Never allow API billing path for Claude Code. :contentReference[oaicite:12]{index=12}
+unset ANTHROPIC_API_KEY
+
+echo "=== [CLAUDE] model=$MODEL ===" | tee "$LOGFILE"
+echo "prompt=$PROMPT_FILE" | tee -a "$LOGFILE"
+
+PROMPT="$(cat "$PROMPT_FILE")"
+
+# We want autonomy: skip interactive permission prompts
+claude --model "$MODEL" -p --dangerously-skip-permissions \
+  --output-format text \
+  "$PROMPT" 2>&1 | tee -a "$LOGFILE"

@@ -1,0 +1,116 @@
+digraph self_check {
+    graph [
+        goal="Factory self-check: verify the factory can build and test itself",
+        rankdir=LR,
+        default_max_retry=1,
+        max_restarts=20,
+        retry_target="typecheck",
+        model_stylesheet="
+            .verify { llm_model: gpt-5.3-codex; llm_provider: openai; }
+            .review { llm_model: opus; llm_provider: anthropic; }
+        "
+    ]
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    // =========================================================================
+    // Stage 1: TypeScript Type Check
+    // =========================================================================
+    typecheck [
+        shape=box,
+        class="verify",
+        timeout="600s",
+        prompt="Goal: $goal\n\nRun TypeScript type checking on factory codebase.\n\nRun:\n1. cd apps/web && npx tsc --noEmit (if exists)\n2. cd apps/api && npx tsc --noEmit (if exists)\n3. Check all packages/*/tsconfig.json (if any)\n\nWrite results to .ai/typecheck.md.\nWrite status.json: outcome=success if all pass, outcome=fail with errors."
+    ]
+
+    check_typecheck [shape=diamond, label="Types OK?"]
+
+    // =========================================================================
+    // Stage 2: Unit Tests
+    // =========================================================================
+    run_unit_tests [
+        shape=box,
+        class="verify",
+        timeout="1200s",
+        prompt="Goal: $goal\n\nRun all unit tests for factory components.\n\nRun:\n1. apps/web tests (vitest if exists)\n2. apps/api tests (vitest if exists)\n3. packages/* tests (vitest if exists)\n4. engine/kilroy tests (go test if exists)\n\nWrite results to .ai/unit_tests.md with:\n- Test counts per component\n- Pass/fail status\n- Coverage metrics (if available)\n\nWrite status.json: outcome=success if all pass, outcome=fail with failures."
+    ]
+
+    check_unit_tests [shape=diamond, label="Unit Tests OK?"]
+
+    // =========================================================================
+    // Stage 3: Build Factory Components
+    // =========================================================================
+    build_factory [
+        shape=box,
+        class="verify",
+        timeout="1800s",
+        prompt="Goal: $goal\n\nBuild all factory components.\n\nBuild:\n1. apps/web (npm run build if exists)\n2. apps/api (npm run build if exists)\n3. packages/* (npm run build if exists)\n4. engine/kilroy (go build if exists)\n\nWrite results to .ai/build.md with:\n- Build status per component\n- Build times\n- Any warnings or errors\n\nWrite status.json: outcome=success if all build, outcome=fail with errors."
+    ]
+
+    check_build [shape=diamond, label="Build OK?"]
+
+    // =========================================================================
+    // Stage 4: Mini Product Pipeline (Fixture)
+    // =========================================================================
+    mini_pipeline [
+        shape=box,
+        class="verify",
+        timeout="3600s",
+        prompt="Goal: $goal\n\nRun a minimal product pipeline using the factory.\n\nScenario:\n- Use a simple fixture product spec (e.g., 'Hello World' web app)\n- Use ts-next-convex-vercel template\n- Run through: scaffold -> implement -> test -> build\n- Do NOT deploy (keep local)\n\nRead:\n- templates/ts-next-convex-vercel/\n- run-configs/default.yaml\n\nExecute:\n1. Create fixture product spec in .ai/fixture_spec.md\n2. Run scaffold step\n3. Run implementation (use Codex CLI)\n4. Run tests\n5. Run build\n\nWrite results to .ai/mini_pipeline.md with:\n- Each stage status\n- Test results\n- Build artifacts created\n\nWrite status.json: outcome=success if pipeline completes, outcome=fail with stage failure."
+    ]
+
+    check_mini_pipeline [shape=diamond, label="Mini Pipeline OK?"]
+
+    // =========================================================================
+    // Stage 5: Validation Gate (Statistical)
+    // =========================================================================
+    validation_gate [
+        shape=box,
+        class="review",
+        timeout="900s",
+        goal_gate=true,
+        prompt="Goal: $goal\n\nValidation gate for factory self-check.\n\nRead:\n- .ai/typecheck.md\n- .ai/unit_tests.md\n- .ai/build.md\n- .ai/mini_pipeline.md\n\nCompute:\n1. Type safety: must be 100% (no type errors)\n2. Unit test pass rate: must be >= 95%\n3. Build success: must be 100% (all components build)\n4. Mini pipeline success: must complete all stages\n\nStatistical gate:\n- If unit tests < 95%, compute Clopper-Pearson lower bound\n- If lower bound < 90% at 95% confidence, fail\n\nWrite results to .ai/validation_gate.json with:\n- Type safety score\n- Test pass rate\n- Build success rate\n- Mini pipeline status\n- Statistical confidence bounds\n- Gate decision (pass/fail)\n\nWrite status.json: outcome=success if gate passes, outcome=fail with reason."
+    ]
+
+    check_validation [shape=diamond, label="Validation OK?"]
+
+    // =========================================================================
+    // Stage 6: Record Evidence
+    // =========================================================================
+    record_evidence [
+        shape=box,
+        timeout="600s",
+        goal_gate=true,
+        prompt="Goal: $goal\n\nRecord immutable evidence ledger for self-check run.\n\nCollect:\n- Typecheck results (.ai/typecheck.md)\n- Unit test results (.ai/unit_tests.md)\n- Build results (.ai/build.md)\n- Mini pipeline results (.ai/mini_pipeline.md)\n- Validation gate decision (.ai/validation_gate.json)\n- Git commit hash\n- Timestamp\n\nWrite to runs/self-check-<timestamp>/evidence/:\n- manifest.json (inventory)\n- typecheck.md\n- unit_tests.md\n- build.md\n- mini_pipeline.md\n- validation_gate.json\n- git_commit.txt\n\nWrite status.json: outcome=success."
+    ]
+
+    check_record [shape=diamond, label="Evidence OK?"]
+
+    // =========================================================================
+    // Flow
+    // =========================================================================
+    start -> typecheck -> check_typecheck
+    check_typecheck -> run_unit_tests    [condition="outcome=success"]
+    check_typecheck -> typecheck         [condition="outcome=fail", label="retry", loop_restart=true]
+
+    run_unit_tests -> check_unit_tests
+    check_unit_tests -> build_factory    [condition="outcome=success"]
+    check_unit_tests -> run_unit_tests   [condition="outcome=fail", label="retry", loop_restart=true]
+
+    build_factory -> check_build
+    check_build -> mini_pipeline         [condition="outcome=success"]
+    check_build -> build_factory         [condition="outcome=fail", label="retry", loop_restart=true]
+
+    mini_pipeline -> check_mini_pipeline
+    check_mini_pipeline -> validation_gate   [condition="outcome=success"]
+    check_mini_pipeline -> mini_pipeline     [condition="outcome=fail", label="retry", loop_restart=true]
+
+    validation_gate -> check_validation
+    check_validation -> record_evidence  [condition="outcome=success"]
+    check_validation -> validation_gate  [condition="outcome=fail", label="retry", loop_restart=true]
+
+    record_evidence -> check_record
+    check_record -> exit                 [condition="outcome=success"]
+    check_record -> record_evidence      [condition="outcome=fail", label="retry", loop_restart=true]
+}

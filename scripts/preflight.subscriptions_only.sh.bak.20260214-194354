@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== Preflight: subscriptions-only (no API keys) ==="
+
+# ---- OpenAI / Codex ----
+if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+  echo "ERROR: OPENAI_API_KEY is set. Unset it to avoid API billing."
+  echo "  Run: unset OPENAI_API_KEY"
+  exit 2
+fi
+
+# codex login status exits 0 when credentials are present. :contentReference[oaicite:5]{index=5}
+if ! codex login status >/dev/null 2>&1; then
+  echo "ERROR: Codex is not logged in (subscription)."
+  echo "  Run: codex login   (or codex login --device-auth)"
+  exit 2
+fi
+
+# ---- Anthropic / Claude Code ----
+# Claude Code prioritizes env var API keys over subscription auth. :contentReference[oaicite:6]{index=6}
+if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+  echo "ERROR: ANTHROPIC_API_KEY is set. This forces API billing in Claude Code."
+  echo "  Run: unset ANTHROPIC_API_KEY"
+  exit 2
+fi
+
+command -v claude >/dev/null 2>&1 || { echo "ERROR: claude CLI not found"; exit 2; }
+command -v codex  >/dev/null 2>&1 || { echo "ERROR: codex CLI not found"; exit 2; }
+command -v tmux   >/dev/null 2>&1 || { echo "ERROR: tmux not found"; exit 2; }
+
+echo "✅ Preflight OK: subscription-only mode enforced."

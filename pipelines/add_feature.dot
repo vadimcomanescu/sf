@@ -1,0 +1,134 @@
+digraph add_feature {
+    graph [
+        goal="Add a new feature to an existing product",
+        rankdir=LR,
+        default_max_retry=2,
+        max_restarts=40,
+        retry_target="design",
+        model_stylesheet="
+            .plan { llm_model: opusplan; llm_provider: anthropic; }
+            .implement_fast { llm_model: gpt-5.3-codex-spark; llm_provider: openai; reasoning_effort: xhigh; }
+            .implement_deep { llm_model: gpt-5.3-codex; llm_provider: openai; reasoning_effort: xhigh; }
+            .review { llm_model: opus; llm_provider: anthropic; }
+            .debug { llm_model: gpt-5.3-codex; llm_provider: openai; }
+        "
+    ]
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    // =========================================================================
+    // Stage 1: Feature Design
+    // =========================================================================
+    design [
+        shape=box,
+        class="plan",
+        prompt="Goal: $goal\n\nDesign the new feature.\n\nRead:\n- Feature request from run context\n- Existing product codebase\n- Current architecture and patterns\n\nDesign:\n- Feature specification\n- Integration points with existing code\n- New domain entities (if DDD backend)\n- API changes (if applicable)\n- UI changes (if applicable)\n- Migration strategy (if DB changes)\n\nWrite design to .ai/feature_design.md.\nWrite status.json: outcome=success."
+    ]
+
+    verify_design [
+        shape=box,
+        timeout="300s",
+        prompt="Verify feature design.\n\nCheck:\n1. Design aligns with existing architecture\n2. Follows DDD patterns if backend\n3. No breaking changes to existing APIs\n4. Migration strategy if DB changes\n\nWrite status.json: outcome=success if complete, outcome=fail otherwise."
+    ]
+
+    check_design [shape=diamond, label="Design OK?"]
+
+    // =========================================================================
+    // Stage 2: Parallel Implementation (Tournament)
+    // =========================================================================
+    par_impl [shape=component]
+
+    impl_codex [
+        shape=box,
+        class="implement_deep",
+        max_retries=2,
+        prompt="Goal: $goal\n\nImplement the feature following the design (Codex branch).\n\nRead:\n- .ai/feature_design.md\n- Existing codebase\n- Test patterns\n\nImplement:\n- New feature code\n- Unit tests for new code\n- Integration tests\n- Update existing tests if needed\n- Migration scripts if DB changes\n\nAcceptance:\n- All new tests pass\n- All existing tests still pass (regression check)\n- Build succeeds\n- No TypeScript errors (if TS project)\n\nWrite status.json: outcome=success if all pass, outcome=fail with failure_reason otherwise."
+    ]
+
+    impl_claude [
+        shape=box,
+        class="implement_deep",
+        max_retries=2,
+        llm_model="opus",
+        llm_provider="anthropic",
+        prompt="Goal: $goal\n\nImplement the feature following the design (Claude branch).\n\nRead:\n- .ai/feature_design.md\n- Existing codebase\n- Test patterns\n\nImplement:\n- New feature code\n- Unit tests for new code\n- Integration tests\n- Update existing tests if needed\n- Migration scripts if DB changes\n\nAcceptance:\n- All new tests pass\n- All existing tests still pass (regression check)\n- Build succeeds\n- No TypeScript errors (if TS project)\n\nWrite status.json: outcome=success if all pass, outcome=fail with failure_reason otherwise."
+    ]
+
+    join_impl [shape=tripleoctagon]
+
+    // =========================================================================
+    // Stage 3: Adjudication & Selection
+    // =========================================================================
+    adjudicate [
+        shape=box,
+        class="review",
+        timeout="1200s",
+        prompt="Goal: $goal\n\nSelect the best implementation from parallel branches.\n\nRead:\n- Both implementation artifacts\n- Test results from each branch\n- Code quality metrics\n- Regression test results\n\nEvaluate:\n1. Test coverage for new code\n2. No regressions in existing tests\n3. Code quality and maintainability\n4. Adherence to existing patterns\n5. Performance impact (if measurable)\n\nRecord evidence:\n- Test counts (new + existing) per branch\n- Regression test results\n- Code complexity metrics\n- Qualitative assessment\n\nWrite .ai/adjudication.md with detailed comparison.\nWrite status.json: outcome=success, selected_branch=(codex|claude) with justification."
+    ]
+
+    check_adjudicate [shape=diamond, label="Selection OK?"]
+
+    // =========================================================================
+    // Stage 4: Regression Tests
+    // =========================================================================
+    run_regression [
+        shape=box,
+        timeout="1800s",
+        prompt="Goal: $goal\n\nRun full regression test suite on selected implementation.\n\nRead:\n- Selected implementation from adjudication\n- Full test suite\n\nRun:\n1. All unit tests\n2. All integration tests\n3. E2E tests\n4. Performance benchmarks (if available)\n\nWrite results to .ai/regression_results.md.\nWrite status.json: outcome=success if all pass, outcome=fail with failures."
+    ]
+
+    check_regression [shape=diamond, label="Regression OK?"]
+
+    // =========================================================================
+    // Stage 5: Feature Evaluation Scenarios
+    // =========================================================================
+    run_feature_evals [
+        shape=box,
+        timeout="1200s",
+        prompt="Goal: $goal\n\nRun feature-specific evaluation scenarios.\n\nRead:\n- Feature request for acceptance criteria\n- Selected implementation\n\nRun:\n- Execute feature acceptance scenarios\n- Compute satisfaction metric (pass rate)\n- Check for regressions in existing functionality\n\nWrite results to .ai/feature_eval.json with:\n- Feature scenarios (passed/failed)\n- Regression scenarios (passed/failed)\n- Overall satisfaction metric\n\nWrite status.json: outcome=success if satisfaction >= threshold, outcome=fail otherwise."
+    ]
+
+    check_feature_evals [shape=diamond, label="Feature Evals OK?"]
+
+    // =========================================================================
+    // Stage 6: Record Evidence
+    // =========================================================================
+    record_evidence [
+        shape=box,
+        timeout="600s",
+        goal_gate=true,
+        prompt="Goal: $goal\n\nRecord immutable evidence ledger for this feature addition.\n\nCollect:\n- Feature design (.ai/feature_design.md)\n- Implementation diff\n- Adjudication report (.ai/adjudication.md)\n- Regression results (.ai/regression_results.md)\n- Feature eval (.ai/feature_eval.json)\n- Test logs\n\nWrite to runs/<run-id>/evidence/:\n- manifest.json\n- feature_design.md\n- adjudication.md\n- regression_results.md\n- feature_eval.json\n- code_diff.patch\n- test.log\n\nWrite status.json: outcome=success."
+    ]
+
+    check_record [shape=diamond, label="Evidence OK?"]
+
+    // =========================================================================
+    // Flow
+    // =========================================================================
+    start -> design
+    design -> verify_design -> check_design
+    check_design -> par_impl         [condition="outcome=success"]
+    check_design -> design           [condition="outcome=fail", label="retry", loop_restart=true]
+
+    par_impl -> impl_codex
+    par_impl -> impl_claude
+    impl_codex -> join_impl
+    impl_claude -> join_impl
+    join_impl -> adjudicate -> check_adjudicate
+
+    check_adjudicate -> run_regression   [condition="outcome=success"]
+    check_adjudicate -> par_impl         [condition="outcome=fail", label="retry", loop_restart=true]
+
+    run_regression -> check_regression
+    check_regression -> run_feature_evals    [condition="outcome=success"]
+    check_regression -> run_regression       [condition="outcome=fail", label="retry", loop_restart=true]
+
+    run_feature_evals -> check_feature_evals
+    check_feature_evals -> record_evidence   [condition="outcome=success"]
+    check_feature_evals -> run_feature_evals [condition="outcome=fail", label="retry", loop_restart=true]
+
+    record_evidence -> check_record
+    check_record -> exit                     [condition="outcome=success"]
+    check_record -> record_evidence          [condition="outcome=fail", label="retry", loop_restart=true]
+}

@@ -1,0 +1,11 @@
+{
+  "plan": { "provider": "anthropic", "model": "opusplan" },
+  "implement_ts_fast": { "provider": "openai", "model": "gpt-5.3-codex-spark", "reasoning": "xhigh" },
+  "implement_ts_deep": { "provider": "openai", "model": "gpt-5.3-codex", "reasoning": "xhigh" },
+  "review": { "provider": "anthropic", "model": "opus" },
+  "debug": { "provider": "openai", "model": "gpt-5.3-codex" },
+  "fallback": {
+    "openai": "gpt-5.2-codex",
+    "anthropic": "sonnet"
+  }
+}

@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+./scripts/preflight.subscriptions_only.sh
+
+SESSION="${SF_TMUX_SESSION:-sf-swarm}"
+RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
+RUN_DIR="$ROOT/runs/$RUN_ID"
+
+mkdir -p "$RUN_DIR" "$ROOT/.worktrees" "$ROOT/prompts"
+
+# ----- Defaults: Spark-first, subscription-only -----
+CODEX_PRIMARY="${CODEX_PRIMARY:-gpt-5.3-codex-spark}"
+CODEX_FALLBACK="${CODEX_FALLBACK:-gpt-5.3-codex}"   # still subscription, used only if Spark fails
+export CODEX_REASONING_EFFORT="${CODEX_REASONING_EFFORT:-xhigh}"
+export CODEX_SANDBOX="${CODEX_SANDBOX:-workspace-write}"
+export CODEX_APPROVAL="${CODEX_APPROVAL:-never}"
+export CODEX_NETWORK="${CODEX_NETWORK:-true}"
+
+CLAUDE_REVIEW_MODEL="${CLAUDE_REVIEW_MODEL:-opus}"
+CLAUDE_BUILD_MODEL="${CLAUDE_BUILD_MODEL:-opusplan}"
+
+command -v tmux >/dev/null || { echo "tmux missing"; exit 1; }
+
+# ----- Required prompt files (you already have these in your repo; keep names consistent) -----
+need_prompt () {
+  local f="$1"
+  [[ -f "$ROOT/prompts/$f" ]] || { echo "Missing prompts/$f"; exit 2; }
+}
+
+need_prompt 10_scaffold.md
+need_prompt 20_api.md
+need_prompt 30_web.md
+need_prompt 40_evals.md
+need_prompt 50_pipelines.md
+need_prompt 60_integrate.md
+need_prompt 70_opus_review.md
+
+# ----- Worktrees (disjoint edits) -----
+mk_wt () {
+  local name="$1"
+  local branch="lane/$name"
+  local dir="$ROOT/.worktrees/$name"
+  if [[ -d "$dir" ]]; then return 0; fi
+  if git show-ref --verify --quiet "refs/heads/$branch"; then
+    git worktree add "$dir" "$branch" >/dev/null
+  else
+    git worktree add "$dir" -b "$branch" >/dev/null
+  fi
+}
+
+mk_wt scaffold
+mk_wt api
+mk_wt web
+mk_wt evals
+mk_wt pipelines
+
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+tmux new-session -d -s "$SESSION" -n swarm
+
+# Create 7 panes
+for _ in 1 2 3 4 5 6; do tmux split-window -t "$SESSION":0 -v; done
+tmux select-layout -t "$SESSION":0 tiled
+
+# Pane helpers
+codex_lane () {
+  local pane="$1" lane="$2" prompt="$3"
+  local wt="$ROOT/.worktrees/$lane"
+  tmux send-keys -t "$SESSION":0."$pane" \
+    "cd \"$ROOT\" && ./scripts/agent.codex.sub.sh \"$CODEX_PRIMARY\" \"$ROOT/prompts/$prompt\" \"$RUN_DIR/codex_${lane}.log\" \"$CODEX_FALLBACK\" && echo DONE > \"$RUN_DIR/${lane}.done\"" C-m
+}
+
+claude_lane () {
+  local pane="$1" lane="$2" model="$3" prompt="$4"
+  local wt="$ROOT/.worktrees/$lane"
+  tmux send-keys -t "$SESSION":0."$pane" \
+    "cd \"$wt\" && \"$ROOT/scripts/agent.claude.sub.sh\" \"$model\" \"$ROOT/prompts/$prompt\" \"$RUN_DIR/claude_${lane}.log\" && echo DONE > \"$RUN_DIR/${lane}.done\"" C-m
+}
+
+# ----- Codex Spark xhigh lanes (build) -----
+codex_lane 0 scaffold   10_scaffold.md
+codex_lane 1 api        20_api.md
+codex_lane 2 web        30_web.md
+codex_lane 3 evals      40_evals.md
+
+# pipelines lane: you can choose Codex or Claude. Here we use Claude OpusPlan to exploit your 2 Claude subs.
+claude_lane 4 pipelines "$CLAUDE_BUILD_MODEL" 50_pipelines.md
+
+# Opus reviewer lane (always busy)
+tmux send-keys -t "$SESSION":0.5 \
+  "cd \"$ROOT\" && ./scripts/agent.claude.sub.sh \"$CLAUDE_REVIEW_MODEL\" \"$ROOT/prompts/70_opus_review.md\" \"$RUN_DIR/claude_opus_review.log\"" C-m
+
+# Integrator lane: Spark-first; waits for done markers then merges/tests/fixes
+tmux send-keys -t "$SESSION":0.6 \
+  "cd \"$ROOT\" && ./scripts/agent.codex.sub.sh \"$CODEX_PRIMARY\" \"$ROOT/prompts/60_integrate.md\" \"$RUN_DIR/codex_integrate.log\" \"$CODEX_FALLBACK\"" C-m
+
+# Logs window
+tmux new-window -t "$SESSION" -n logs
+tmux send-keys -t "$SESSION":logs.0 "cd \"$RUN_DIR\" && ls -la && tail -n 200 -f *.log" C-m
+
+echo "Swarm started: tmux attach -t $SESSION"
+echo "Run logs: $RUN_DIR"
+tmux attach -t "$SESSION"

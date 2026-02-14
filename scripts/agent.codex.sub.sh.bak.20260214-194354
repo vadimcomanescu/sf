@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MODEL_PRIMARY="${1:?model_primary required}"
+PROMPT_FILE="${2:?prompt_file required}"
+LOGFILE="${3:?logfile required}"
+MODEL_FALLBACK="${4:-}"   # optional
+
+# Hard requirements from you:
+CODEX_REASONING_EFFORT="${CODEX_REASONING_EFFORT:-xhigh}"     # ALWAYS xhigh
+CODEX_SANDBOX="${CODEX_SANDBOX:-workspace-write}"
+CODEX_APPROVAL="${CODEX_APPROVAL:-never}"
+CODEX_NETWORK="${CODEX_NETWORK:-true}"
+
+# Guardrails: never allow API key billing paths
+unset OPENAI_API_KEY
+
+mkdir -p "$(dirname "$LOGFILE")"
+echo "=== [CODEX] primary=$MODEL_PRIMARY fallback=${MODEL_FALLBACK:-none} effort=$CODEX_REASONING_EFFORT ===" | tee "$LOGFILE"
+echo "prompt=$PROMPT_FILE" | tee -a "$LOGFILE"
+
+run_once () {
+  local model="$1"
+  echo "--- run model=$model ---" | tee -a "$LOGFILE"
+
+  # Note: for subcommands, place global flags after it (docs example: `codex exec --oss ...`) :contentReference[oaicite:8]{index=8}
+  # PROMPT supports '-' to read stdin. :contentReference[oaicite:9]{index=9}
+  codex exec \
+    --model "$model" \
+    --ask-for-approval "$CODEX_APPROVAL" \
+    --sandbox "$CODEX_SANDBOX" \
+    -c "forced_login_method=chatgpt" \
+    -c "model_reasoning_effort=$CODEX_REASONING_EFFORT" \
+    -c "sandbox_workspace_write.network_access=$CODEX_NETWORK" \
+    - < "$PROMPT_FILE" 2>&1 | tee -a "$LOGFILE"
+}
+
+set +e
+run_once "$MODEL_PRIMARY"
+rc="${PIPESTATUS[0]}"
+set -e
+
+if [[ "$rc" -ne 0 && -n "${MODEL_FALLBACK:-}" ]]; then
+  echo "!!! primary failed (rc=$rc). Trying fallback model=$MODEL_FALLBACK" | tee -a "$LOGFILE"
+  run_once "$MODEL_FALLBACK"
+fi

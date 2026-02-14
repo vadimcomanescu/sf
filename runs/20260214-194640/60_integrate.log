@@ -1,0 +1,26 @@
+=== Codex exec (gpt-5.3-codex-spark) ===
+error: unexpected argument '--ask-for-approval' found
+
+  tip: to pass '--ask-for-approval' as a value, use '-- --ask-for-approval'
+
+Usage: codex exec --model <MODEL> [PROMPT]
+
+For more information, try '--help'.
+⚠️ Codex primary failed; trying fallback: gpt-5.3-codex
+=== Codex exec (gpt-5.3-codex) ===
+error: unexpected argument '--ask-for-approval' found
+
+  tip: to pass '--ask-for-approval' as a value, use '-- --ask-for-approval'
+
+Usage: codex exec --model <MODEL> [PROMPT]
+
+For more information, try '--help'.
+⚠️ Codex fallback failed; trying fallback2: gpt-5.2-codex
+=== Codex exec (gpt-5.2-codex) ===
+error: unexpected argument '--ask-for-approval' found
+
+  tip: to pass '--ask-for-approval' as a value, use '-- --ask-for-approval'
+
+Usage: codex exec --model <MODEL> [PROMPT]
+
+For more information, try '--help'.

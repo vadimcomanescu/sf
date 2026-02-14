@@ -1,0 +1,502 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SF_ROOT="${SF_ROOT:-$HOME/sf}"
+ENGINE_DIR="$SF_ROOT/engine"
+BIN_DIR="$SF_ROOT/bin"
+FACTORY_REPO="$SF_ROOT/factory-os"
+
+mkdir -p "$ENGINE_DIR" "$BIN_DIR"
+
+echo "==> 1) Clone + build Kilroy (Attractor runner)"
+if [ ! -d "$ENGINE_DIR/kilroy" ]; then
+  git clone https://github.com/danshapiro/kilroy.git "$ENGINE_DIR/kilroy"
+fi
+
+pushd "$ENGINE_DIR/kilroy" >/dev/null
+  go build -o "$BIN_DIR/kilroy" ./cmd/kilroy
+popd >/dev/null
+
+echo "==> 2) Create factory-os monorepo skeleton"
+mkdir -p "$FACTORY_REPO"
+if [ ! -d "$FACTORY_REPO/.git" ]; then
+  pushd "$FACTORY_REPO" >/dev/null
+    git init
+    git config user.email "sf@local"
+    git config user.name "software-factory"
+  popd >/dev/null
+fi
+
+pushd "$FACTORY_REPO" >/dev/null
+  mkdir -p apps/api apps/web packages/core packages/evals pipelines templates scripts prompts .agents/skills data
+
+  cat > package.json <<'JSON'
+{
+  "name": "factory-os",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "test": "turbo test",
+    "lint": "turbo lint",
+    "format": "turbo format",
+    "typecheck": "turbo typecheck"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0"
+  }
+}
+JSON
+
+  cat > turbo.json <<'JSON'
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "dev": { "cache": false, "persistent": true },
+    "build": { "dependsOn": ["^build"], "outputs": ["dist/**", ".next/**"] },
+    "test": { "dependsOn": ["^build"], "outputs": [] },
+    "lint": { "outputs": [] },
+    "typecheck": { "outputs": [] },
+    "format": { "outputs": [] }
+  }
+}
+JSON
+
+  cat > pnpm-workspace.yaml <<'YAML'
+packages:
+  - "apps/*"
+  - "packages/*"
+YAML
+
+  echo "==> 3) Write AGENTS.md + SPEC.md (these are the swarm contract)"
+  cat > AGENTS.md <<'MD'
+# AGENTS.md — Factory OS
+
+This repo is built to be executed by coding agents autonomously. **Follow this order**:
+1) Read `SPEC.md`
+2) Run `pnpm -w i`
+3) Implement only your assigned work package (see `prompts/`).
+4) Run verifiers required by your package.
+5) Commit with a concise message.
+
+## Non-negotiable constraints
+- Primary language: **TypeScript**
+- Web: **Next.js** (deploy target: Vercel by default)
+- Control-plane: **Node + Fastify** (DDD folders below)
+- Orchestration engine: **Kilroy** (Go binary), running StrongDM-style Attractor DOT graphs.
+- Always emit **structured run events** suitable for UI streaming.
+- Every change must be verifiable via tests + scenario harness. No “it should work”.
+
+## DDD folder layout (apps/api)
+apps/api/src/
+  domain/
+  application/
+  infrastructure/
+  interfaces/http/
+  tests/
+
+If you disagree, you must *prove* a better structure for agent reliability and update SPEC.md accordingly.
+
+## Definition of Done (DoD) for any task
+- Typecheck passes
+- Unit tests pass
+- No broken lint/format
+- Any new behavior has tests
+- Adds observability events (OTel + local logs)
+- Works on mac/linux; no hardcoded absolute paths (use config)
+
+## Agent-ops
+- Do not touch holdout scenarios. Holdouts live outside repo and are executed by eval harness.
+- Avoid refactors. Minimum change to satisfy spec.
+- Prefer small modules with pure functions + typed I/O contracts.
+MD
+
+  cat > SPEC.md <<'MD'
+# Factory OS — Metaspec (Feb 2026)
+
+Goal: A local-first software factory that can run **multiple products** concurrently, build/iterate/deploy them autonomously, and **verify itself**.
+
+## A) Core capabilities
+1) Multi-product workspace
+- A “product” is a git repo + config.
+- Products can run builds concurrently.
+- Each run is an Attractor DOT pipeline executed by Kilroy.
+
+2) WebUI (real time)
+- List products, runs, stages.
+- Stream logs/events live (SSE or WS).
+- Show per-stage diffs and artifacts.
+- Controls: start run, stop run, resume run.
+
+3) CLI (`sf`)
+- `sf product add|list|remove`
+- `sf run start|status|stop|resume|logs`
+- `sf pipeline validate|run` (wrapper over Kilroy)
+
+4) Self-verification
+- Deterministic verifiers: typecheck, lint, unit tests, integration tests.
+- Holdout scenarios: hidden from coding agents, executed by eval harness.
+- Acceptance gate is statistical (confidence bound) not just pass/fail.
+
+5) Parallelism + convergence
+- For a given task, generate K candidate branches in parallel.
+- Screen by deterministic tests.
+- Evaluate survivors on holdouts.
+- Select winner via sequential halving / tournament.
+- Merge only if acceptance bound met; otherwise iterate.
+
+## B) Technology choices (few stacks to reduce drift)
+Factory OS itself:
+- TypeScript monorepo (pnpm + turbo)
+- apps/web: Next.js
+- apps/api: Fastify, DDD folders
+- packages/core: run manager + adapters
+- packages/evals: scenario runner + statistics
+- Observability: OpenTelemetry (OTel) + local Grafana stack via docker compose (optional in v1, but instrumentation required)
+
+Products generated by the factory:
+STACK-TS (default): Next.js + TypeScript + Convex backend (agents like TS end-to-end; durable agent components exist).
+STACK-PY (when needed): Next.js + FastAPI + Postgres (Supabase optional) on Fly.io.
+
+Voice agents:
+- Must support pluggable STT/TTS providers.
+- Default local mode should run on RTX 3060: Whisper-family STT + local TTS (Piper or equivalent).
+- Provide cloud fallbacks (Deepgram/ElevenLabs/OpenAI) but not required.
+
+## C) Integration with Kilroy / Attractor
+- Kilroy provides: ingest/validate/run/resume/status/stop and CXDB logging.
+- Factory OS should call Kilroy as a subprocess and parse its structured artifacts from logs_root.
+- CXDB UI can run locally and be linked from WebUI.
+
+## D) Statistical acceptance gate (must implement)
+Given N holdout checks with k passes:
+- Compute conservative lower confidence bound (Clopper–Pearson) at alpha (default 0.05).
+- Accept only if lower bound >= target (default 0.98), AND deterministic verifiers pass.
+- Store evaluation artifacts per run.
+
+## E) Pipeline-invariants (factory verifies itself)
+- “Stop” must halt a run.
+- “Resume” must continue from last checkpoint deterministically.
+- Event stream must be well-formed (schema + monotonic timestamps).
+- A smoke product pipeline must complete end-to-end and deploy in dry-run mode.
+
+Deliver v1 as a working local system.
+MD
+
+  echo "==> 4) Write Kilroy run config template (run.yaml)"
+  KILROY_PATH="$ENGINE_DIR/kilroy"
+  cat > run.yaml <<YAML
+version: 1
+repo:
+  path: "$FACTORY_REPO"
+
+cxdb:
+  binary_addr: 127.0.0.1:9009
+  http_base_url: http://127.0.0.1:9010
+  autostart:
+    enabled: true
+    command: ["$KILROY_PATH/scripts/start-cxdb.sh"]
+    wait_timeout_ms: 20000
+    poll_interval_ms: 250
+  ui:
+    enabled: true
+    command: ["$KILROY_PATH/scripts/start-cxdb-ui.sh"]
+    url: "http://127.0.0.1:9020"
+
+llm:
+  cli_profile: real
+  providers:
+    openai:
+      backend: cli
+    anthropic:
+      backend: api
+    google:
+      backend: api
+  modeldb:
+    openrouter_model_info_path: "$KILROY_PATH/internal/attractor/modeldb/pinned/openrouter_models.json"
+    openrouter_model_info_update_policy: on_run_start
+    openrouter_model_info_url: https://openrouter.ai/api/v1/models
+    openrouter_model_info_fetch_timeout_ms: 5000
+
+git:
+  require_clean: false
+  run_branch_prefix: attractor/run
+  commit_per_node: true
+
+runtime_policy:
+  stage_timeout_ms: 0
+  stall_timeout_ms: 600000
+  stall_check_interval_ms: 5000
+  max_llm_retries: 6
+
+preflight:
+  prompt_probes:
+    enabled: true
+    transports: [complete, stream]
+    timeout_ms: 15000
+    retries: 1
+    base_delay_ms: 500
+    max_delay_ms: 5000
+YAML
+
+  echo "==> 5) Write swarm prompts (work packages)"
+  # Each prompt must be narrow and touch mostly disjoint paths.
+
+  cat > prompts/10_scaffold.md <<'MD'
+You are Lane SCAFFOLD. You may edit ANY files, but keep changes minimal and focused.
+
+Task: finish monorepo scaffolding so other lanes can work in parallel.
+
+Requirements:
+- Use pnpm workspaces + turbo already present.
+- Create baseline tooling shared across workspace:
+  - TypeScript config (base tsconfig)
+  - ESLint + Prettier
+  - Vitest for unit tests
+- Add workspace scripts: lint, format, typecheck, test.
+- Ensure `pnpm -w i` completes.
+- Ensure `pnpm -w typecheck` passes (even if projects are placeholders).
+- Commit as: "chore: scaffold monorepo tooling"
+MD
+
+  cat > prompts/20_api.md <<'MD'
+You are Lane API. You may ONLY edit under `apps/api/**` and shared config files you must (tsconfig base, eslint config). Do not touch apps/web.
+
+Implement: Fastify control-plane server with DDD folder structure exactly:
+
+apps/api/src/
+  domain/
+  application/
+  infrastructure/
+  interfaces/http/
+  tests/
+
+Functional endpoints (v1):
+- GET /health
+- GET /products
+- POST /products  {id,name,repoPath}
+- GET /runs
+- POST /runs/start  {productId, pipelineDotPath, prompt, modelProfile}
+- POST /runs/:runId/stop
+- POST /runs/:runId/resume
+- GET /runs/:runId/status   (reads Kilroy logs_root via `kilroy attractor status --json`)
+- GET /runs/:runId/events   (SSE: streams appended log lines + stage events)
+- GET /runs/:runId/diff      (returns `git diff` between run checkpoints)
+
+Implementation details:
+- Runs are executed by spawning `~/sf/bin/kilroy attractor run --graph <dot> --config <run.yaml>` in the product repo path.
+- Track child PIDs safely; store state in sqlite (drizzle) OR a single JSON file under `data/` (choose one and justify in code comments).
+- Emit typed events for UI: runStarted, stageStarted, stageCompleted, logLine, runStopped, runResumed, runFailed, runSucceeded.
+- Add OpenTelemetry instrumentation (minimal): HTTP spans + key events.
+- Include unit tests for RunRegistry and for SSE framing.
+
+DoD:
+- `pnpm -w test` passes for apps/api.
+- `pnpm -w typecheck` passes.
+- Commit as: "feat(api): control plane for products and runs"
+MD
+
+  cat > prompts/30_web.md <<'MD'
+You are Lane WEB. You may ONLY edit under `apps/web/**`.
+
+Implement: Next.js WebUI for Factory OS with real-time visibility.
+
+Pages:
+- /products (list + create)
+- /products/[id] (product detail + start run form)
+- /runs/[runId] (live run view)
+
+Live run view must show:
+- status badge
+- event timeline (SSE)
+- log stream (SSE)
+- diff viewer (calls /runs/:runId/diff)
+- buttons: Stop / Resume
+
+Constraints:
+- Use EventSource (SSE) first; fallback to polling if SSE unavailable.
+- Keep UI simple but functional; focus on observability.
+- Add Playwright smoke test: start dev servers (assume api at localhost:4000) and verify /products loads.
+
+DoD:
+- `pnpm -w build` passes for apps/web.
+- `pnpm -w test` passes (unit + playwright smoke).
+- Commit as: "feat(web): real-time factory console"
+MD
+
+  cat > prompts/40_evals.md <<'MD'
+You are Lane EVALS. You may ONLY edit under `packages/evals/**` plus minimal shared config.
+
+Implement: evaluation harness + statistical acceptance gate.
+
+Required modules:
+1) Scenario format:
+- A scenario is a directory with:
+  - scenario.json (name, type, command, timeout, expected)
+  - optional fixtures/
+- Runner must execute scenarios and return structured results.
+
+2) Stats gate:
+- Implement Clopper–Pearson lower bound for binomial pass rate.
+- API: accept if lowerBound(alpha=0.05) >= target=0.98.
+
+3) Tournament selection:
+- Given K candidates with deterministic screens, run holdouts and pick winner.
+- Use sequential halving: evaluate all on small batch, keep top half, increase batch, repeat.
+
+4) Artifacts:
+- Write eval_report.json with scenario results, lowerBound, decision, winner.
+
+DoD:
+- Unit tests for Clopper–Pearson with known values.
+- Example scenarios under packages/evals/examples/ that run on this repo itself.
+- Commit as: "feat(evals): scenario harness and acceptance gate"
+MD
+
+  cat > prompts/50_pipelines.md <<'MD'
+You are Lane PIPELINES. You may ONLY edit:
+- pipelines/**
+- templates/**
+- .agents/skills/**
+- docs in repo root (NOT code)
+
+Implement:
+- Default DOT pipeline templates for:
+  1) build-new-product (Next.js + default backend choice)
+  2) add-feature (given prompt)
+  3) fix-bug
+  4) deploy (Vercel for frontend; Fly.io optional for backend)
+
+Pipelines must:
+- include validate/test/eval stages
+- checkpoint after each stage
+- produce status.json per stage
+
+Also:
+- Add at least 2 custom skills (SKILL.md) to `.agents/skills/`:
+  - english-to-dotfile (if not using Kilroy’s built-in)
+  - write-holdout-scenarios
+  - vercel-deploy-dryrun
+
+DoD:
+- Each DOT validates via `~/sf/bin/kilroy attractor validate --graph <file>`.
+- Commit as: "feat(pipelines): default graphs and skills"
+MD
+
+  echo "==> 6) Scripts: swarm.tmux.sh and merge-and-verify.sh"
+  cat > scripts/swarm.tmux.sh <<'BASH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+if ! command -v tmux >/dev/null; then
+  echo "tmux not installed"; exit 1
+fi
+
+SESSION="sf-swarm"
+
+# Create worktrees (disjoint lanes)
+mkdir -p .worktrees
+
+create_wt () {
+  local name="$1"
+  local branch="lane/$name"
+  local dir="$ROOT/.worktrees/$name"
+  if [ ! -d "$dir" ]; then
+    git worktree add "$dir" -b "$branch"
+  fi
+}
+
+create_wt scaffold
+create_wt api
+create_wt web
+create_wt evals
+create_wt pipelines
+
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+tmux new-session -d -s "$SESSION" -n swarm
+
+# Pane layout
+tmux split-window -h -t "$SESSION":0
+tmux split-window -v -t "$SESSION":0.0
+tmux split-window -v -t "$SESSION":0.1
+tmux split-window -v -t "$SESSION":0.2
+tmux select-layout -t "$SESSION":0 tiled
+
+run_codex () {
+  local pane="$1"
+  local wt="$2"
+  local prompt="$3"
+  local model="$4"
+  tmux send-keys -t "$SESSION":0."$pane" "cd $ROOT/.worktrees/$wt && git status && codex exec --model $model --sandbox workspace-write --ask-for-approval never \"\$(cat $ROOT/prompts/$prompt)\" | tee /tmp/sf-${wt}.out" C-m
+}
+
+# Codex lanes (GPT‑5.3‑Codex for deep; Spark for UI iteration)
+run_codex 0 scaffold 10_scaffold.md gpt-5.3-codex
+run_codex 1 api      20_api.md      gpt-5.3-codex
+run_codex 2 web      30_web.md      gpt-5.3-codex-spark
+run_codex 3 evals    40_evals.md    gpt-5.3-codex
+run_codex 4 pipelines 50_pipelines.md gpt-5.3-codex
+
+tmux select-pane -t "$SESSION":0.0
+tmux attach -t "$SESSION"
+BASH
+  chmod +x scripts/swarm.tmux.sh
+
+  cat > scripts/merge-and-verify.sh <<'BASH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+# Merge lanes in an order that reduces conflicts
+LANES=(scaffold api evals pipelines web)
+
+git checkout -B main || git checkout main
+
+for lane in "${LANES[@]}"; do
+  branch="lane/$lane"
+  if git show-ref --verify --quiet "refs/heads/$branch"; then
+    echo "==> Merging $branch"
+    git merge --no-ff "$branch" -m "merge: $branch"
+  else
+    echo "WARN: missing $branch"
+  fi
+done
+
+echo "==> Install + verify"
+pnpm -w i
+pnpm -w typecheck
+pnpm -w test
+pnpm -w build
+
+echo "✅ Merge + verify complete"
+BASH
+  chmod +x scripts/merge-and-verify.sh
+
+  cat > scripts/start-dev.sh <<'BASH'
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+pnpm -w i
+pnpm -w dev
+BASH
+  chmod +x scripts/start-dev.sh
+
+  echo "==> 7) Initial commit"
+  git add -A
+  git commit -m "chore: bootstrap factory-os skeleton" || true
+
+popd >/dev/null
+
+echo ""
+echo "✅ Bootstrap done."
+echo "Next:"
+echo "  cd $FACTORY_REPO"
+echo "  ./scripts/swarm.tmux.sh"
+echo "Then merge:"
+echo "  ./scripts/merge-and-verify.sh"
